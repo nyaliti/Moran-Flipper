@@ -766,10 +766,3 @@ void CloseRiskiestPosition()
     }
 }
 
-//+------------------------------------------------------------------+
-//| Analyze and potentially trade a specific symbol                  |
-//+------------------------------------------------------------------+
-void AnalyzeSymbol(string symbol)
-{
-    // Implement your analysis for the specific symbol here
-    // This could include checking for entry signals
