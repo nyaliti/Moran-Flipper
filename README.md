@@ -65,3 +65,34 @@ TakeProfit: 50
 StopLoss: 30
 LotSize: 0.1
 MaxDrawdown: 10
+
+### Example 2: Aggressive Strategy
+```plaintext
+TakeProfit: 100
+StopLoss: 50
+LotSize: 0.5
+MaxDrawdown: 20
+Contributing
+We welcome contributions! Please read our CONTRIBUTING.md for guidelines on how to contribute to this project.
+
+Code of Conduct
+Please review our CODE_OF_CONDUCT.md to understand our expectations for participant behavior.
+
+Changelog
+See the CHANGELOG.md for details on changes and updates to this project.
+
+Roadmap
+Check out our ROADMAP.md for future plans and features we aim to implement.
+
+License
+This project is licensed under the MIT License. See the LICENSE file for details.
+
+Contact
+For any inquiries or support, please contact:
+
+Email: your-email@example.com
+Twitter: @yourtwitterhandle
+FAQ
+For common questions and troubleshooting, please refer to the FAQ.md.
+
+Thank you for your interest in Moran Flipper EA! Happy trading!
