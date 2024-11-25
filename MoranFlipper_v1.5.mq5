@@ -656,17 +656,3 @@ int AnalyzeTrendMultiTimeframe(string symbol)
     return 0;
 }
 
-//+------------------------------------------------------------------+
-//| Identify trend for a specific timeframe                          |
-//+------------------------------------------------------------------+
-int IdentifyTrend(string symbol, ENUM_TIMEFRAMES timeframe)
-{
-    double ma[], close[];
-    ArraySetAsSeries(ma, true);
-    ArraySetAsSeries(close, true);
-    
-    int maHandle = iMA(symbol, timeframe, 50, 0, MODE_SMA, PRICE_CLOSE);
-    if(maHandle == INVALID_HANDLE) return 0;
-    
-    if(CopyBuffer(maHandle, 0, 0, 3, ma) != 3) return 0;
-    if(CopyClose(symbol, timeframe, 0, 3, close) !=
