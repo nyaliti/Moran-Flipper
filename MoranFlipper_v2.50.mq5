@@ -759,11 +759,3 @@ void OpenBuyTrade(double lotSize)
     trade.Buy(lotSize, _Symbol, entryPrice, stopLoss, takeProfit, "Moran Flipper v2.4");
 }
 
-//+------------------------------------------------------------------+
-//| Open a sell trade                                                |
-//+------------------------------------------------------------------+
-void OpenSellTrade(double lotSize)
-{
-    double entryPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    double stopLoss = CalculateDynamicStopLoss(false);
-    double takeProfit = CalculateDynamicT
