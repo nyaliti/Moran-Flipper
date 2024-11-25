@@ -689,19 +689,3 @@ void UpdateTradeStats()
     }
 }
 
-//+------------------------------------------------------------------+
-//| Print trade statistics                                           |
-//+------------------------------------------------------------------+
-void PrintTradeStats()
-{
-    double winRate = stats.totalTrades > 0 ? (double)stats.winningTrades / stats.totalTrades * 100 : 0;
-    double profitFactor = stats.totalLoss > 0 ? stats.totalProfit / stats.totalLoss : 0;
-    
-    Print("=== Moran Flipper v1.4 Trade Statistics ===");
-    Print("Total Trades: ", stats.totalTrades);
-    Print("Winning Trades: ", stats.winningTrades);
-    Print("Losing Trades: ", stats.losingTrades);
-    Print("Win Rate: ", DoubleToString(winRate, 2), "%");
-    Print("Total Profit: ", DoubleToString(stats.totalProfit, 2));
-    Print("Total Loss: ", DoubleToString(stats.totalLoss, 2));
-    Print("Profit Factor
