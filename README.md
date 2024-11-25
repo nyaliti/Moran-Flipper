@@ -1,52 +1,67 @@
-# MoranFlipper v1.5
+# Moran Flipper EA
+
+![Moran Flipper Logo](path/to/logo.png) <!-- Replace with your logo path -->
 
 ## Overview
 
-MoranFlipper v1.5 is an Expert Advisor (EA) designed for automated trading in the Forex market. It utilizes various technical indicators and advanced strategies, including Smart Money Concepts (SMC) and Machine Learning techniques, to analyze market conditions and execute trades on multiple currency pairs.
+Moran Flipper is an Expert Advisor (EA) designed for automated trading on the MetaTrader 5 platform. This EA employs advanced strategies to analyze market conditions and execute trades based on predefined criteria. The goal is to enhance trading efficiency and maximize profit potential.
+
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Examples](#examples)
+- [Contributing](#contributing)
+- [Code of Conduct](#code-of-conduct)
+- [Changelog](#changelog)
+- [Roadmap](#roadmap)
+- [License](#license)
+- [Contact](#contact)
+- [FAQ](#faq)
 
 ## Features
 
-- **Risk Management**: Configurable risk percentage per trade.
-- **Technical Indicators**: Integrates ATR, RSI, Stochastic, and custom SMC strategies.
-- **Multi-Timeframe Analysis**: Analyzes trends across different timeframes (H4, H1, M15).
-- **Machine Learning**: Implements Long Short-Term Memory (LSTM) for predicting market movements.
-- **Sentiment Analysis**: Incorporates news sentiment analysis to avoid trading during high-impact news events.
-- **Adaptive Optimization**: Performs periodic optimization of trading parameters based on historical data.
-
-## Input Parameters
-
-- `RiskPercent`: Risk per trade as a percentage of account balance (default: 1.0).
-- `ATRPeriod`: Period for Average True Range calculation (default: 14).
-- `SMC_OB_Lookback`: Lookback period for identifying Order Blocks (default: 10).
-- `SMC_FVG_Lookback`: Lookback period for identifying Fair Value Gaps (default: 5).
-- `TimeframeHigh`: Higher timeframe for trend analysis (default: H4).
-- `TimeframeMid`: Middle timeframe for trend analysis (default: H1).
-- `TimeframeLow`: Lower timeframe for trend analysis (default: M15).
-- `LSTMSequenceLength`: Sequence length for LSTM input (default: 60).
-- `LSTMPredictionHorizon`: Number of future bars to predict (default: 5).
-- `TradingPairs`: List of trading pairs (default: `{"EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD"}`).
-- `RSIPeriod`: Period for RSI calculation (default: 14).
-- `StochasticKPeriod`: K period for Stochastic (default: 14).
-- `StochasticDPeriod`: D period for Stochastic (default: 3).
-- `StochasticSlowing`: Slowing for Stochastic (default: 3).
-- `OptimizationPeriod`: Number of bars for optimization (default: 1000).
-- `ValidationPeriod`: Number of bars for validation after optimization (default: 500).
+- **Automated Trading**: Fully automated trading based on market analysis.
+- **Customizable Strategies**: Easily adjustable parameters to fit your trading style.
+- **Risk Management**: Integrated risk management features to protect your capital.
+- **Backtesting**: Test your strategies against historical data to evaluate performance.
 
 ## Installation
 
-1. Download the `MoranFlipper_v1.5.mq5` file.
-2. Place the file in the `Experts` directory of your MetaTrader 5 installation.
-3. Restart MetaTrader 5.
-4. Attach the EA to a chart of your desired trading pair.
+1. Ensure you have [MetaTrader 5](https://www.metatrader5.com/en/download) installed on your computer.
+2. Download the latest release of Moran Flipper EA from the [Releases](https://github.com/yourusername/Moran-Flipper/releases) page.
+3. Copy the `MoranFlipper.mq5` file to the `Experts` folder in your MetaTrader 5 directory.
+4. Restart MetaTrader 5.
 
-## Acknowledgements
+## Usage
 
-This project was developed by **Bryson N. Omullo**, a seasoned Forex trader since 2020 and a full-stack software engineer. Work on this project began in December 2022 and was completed in December 2023. For more information, visit [GitHub](https://github.com/nyaliti).
+1. Open MetaTrader 5 and navigate to the "Navigator" panel.
+2. Find the Moran Flipper EA under the "Expert Advisors" section.
+3. Drag and drop the EA onto a chart of your choice.
+4. Configure the settings as desired and click "OK".
 
-## License
+## Configuration
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Moran Flipper EA comes with various configurable parameters. Here are some key settings:
 
-## Contact
+| Parameter         | Type     | Description                                |
+|-------------------|----------|--------------------------------------------|
+| `TakeProfit`      | Integer  | The take profit level in points.          |
+| `StopLoss`        | Integer  | The stop loss level in points.            |
+| `LotSize`         | Double   | The size of the trading lot.              |
+| `MaxDrawdown`     | Integer  | Maximum allowable drawdown in percentage. |
 
-For support or inquiries, please contact Bryson N. Omullo via [GitHub](https://github.com/nyaliti)
+For a full list of parameters, please refer to the [documentation](docs/).
+
+## Examples
+
+Here are some example configurations you can use to get started:
+
+### Example 1: Conservative Strategy
+```plaintext
+TakeProfit: 50
+StopLoss: 30
+LotSize: 0.1
+MaxDrawdown: 10
