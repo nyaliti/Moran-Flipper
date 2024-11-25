@@ -1,310 +1,279 @@
 // Add these new input parameters
-input double MaxPortfolioRisk = 5.0; // Maximum portfolio risk as a percentage of balance
-input int GenericAlgoPopulationSize = 50; // Population size for genetic algorithm
-input int GenericAlgoGenerations = 100; // Number of generations for genetic algorithm
+input int WalkForwardPeriod = 1000;  // Number of bars for walk-forward optimization
+input int OutOfSamplePeriod = 500;   // Number of bars for out-of-sample testing
+input bool UseAdaptivePositionSizing = true;  // Use adaptive position sizing based on account growth
 
 // New global variables
-CHashMap<string, double> symbolWeights; // Weights for each symbol in the portfolio
-int customIndicatorHandle;
-double customIndicatorBuffer[];
+datetime lastWalkForwardTime = 0;
+int marketRegime = 0;  // 0: Unknown, 1: Trending, 2: Ranging, 3: Volatile
 
 //+------------------------------------------------------------------+
-//| Custom indicator that combines multiple trading signals          |
+//| Sophisticated Backtesting Framework                              |
 //+------------------------------------------------------------------+
-class CCustomIndicator : public CIndicator
+class CBacktester
 {
 private:
-    int m_ma_handle;
-    int m_rsi_handle;
-    int m_stoch_handle;
-    double m_ma_buffer[];
-    double m_rsi_buffer[];
-    double m_stoch_buffer[];
+    string m_symbol;
+    ENUM_TIMEFRAMES m_timeframe;
+    datetime m_start_time;
+    datetime m_end_time;
+    double m_initial_balance;
+    double m_current_balance;
+    int m_total_trades;
+    int m_winning_trades;
+    double m_gross_profit;
+    double m_gross_loss;
+    double m_max_drawdown;
+    double m_peak_balance;
 
 public:
-    bool Init(const string symbol, const ENUM_TIMEFRAMES timeframe, const int ma_period, const int rsi_period, const int stoch_period)
+    CBacktester(string symbol, ENUM_TIMEFRAMES timeframe, datetime start_time, datetime end_time, double initial_balance)
     {
-        SetSymbol(symbol);
-        SetTimeframe(timeframe);
-        
-        m_ma_handle = iMA(symbol, timeframe, ma_period, 0, MODE_SMA, PRICE_CLOSE);
-        m_rsi_handle = iRSI(symbol, timeframe, rsi_period, PRICE_CLOSE);
-        m_stoch_handle = iStochastic(symbol, timeframe, stoch_period, 3, 3, MODE_SMA, STO_LOWHIGH);
-        
-        if(m_ma_handle == INVALID_HANDLE || m_rsi_handle == INVALID_HANDLE || m_stoch_handle == INVALID_HANDLE)
-            return false;
-        
-        ArraySetAsSeries(m_ma_buffer, true);
-        ArraySetAsSeries(m_rsi_buffer, true);
-        ArraySetAsSeries(m_stoch_buffer, true);
-        
+        m_symbol = symbol;
+        m_timeframe = timeframe;
+        m_start_time = start_time;
+        m_end_time = end_time;
+        m_initial_balance = initial_balance;
+        m_current_balance = initial_balance;
+        m_total_trades = 0;
+        m_winning_trades = 0;
+        m_gross_profit = 0;
+        m_gross_loss = 0;
+        m_max_drawdown = 0;
+        m_peak_balance = initial_balance;
+    }
+
+    void RunBacktest()
+    {
+        MqlRates rates[];
+        ArraySetAsSeries(rates, true);
+        int copied = CopyRates(m_symbol, m_timeframe, m_start_time, m_end_time, rates);
+
+        if(copied > 0)
+        {
+            for(int i = copied - 1; i >= 0; i--)
+            {
+                // Simulate market conditions
+                SimulateMarketConditions(rates[i]);
+
+                // Check for entry signals
+                bool entrySignal = CheckEntrySignal(rates[i]);
+                bool isLong = IsLongSignal(rates[i]);
+
+                if(entrySignal)
+                {
+                    // Open trade
+                    OpenTrade(isLong, rates[i]);
+                }
+
+                // Manage open positions
+                ManageOpenPositions(rates[i]);
+            }
+
+            // Calculate final statistics
+            CalculateFinalStatistics();
+        }
+    }
+
+    void SimulateMarketConditions(const MqlRates &rate)
+    {
+        // Implement your market simulation logic here
+        // This could include updating indicators, market regime, etc.
+    }
+
+    bool CheckEntrySignal(const MqlRates &rate)
+    {
+        // Implement your entry signal logic here
+        return false;
+    }
+
+    bool IsLongSignal(const MqlRates &rate)
+    {
+        // Implement your long/short signal logic here
         return true;
     }
-    
-    int Calculate(const int rates_total, const int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
+
+    void OpenTrade(bool isLong, const MqlRates &rate)
     {
-        if(rates_total < 3)
-            return 0;
-        
-        int calculated = BarsCalculated(m_ma_handle);
-        if(calculated < rates_total)
-            return 0;
-        
-        if(CopyBuffer(m_ma_handle, 0, 0, 3, m_ma_buffer) != 3)
-            return 0;
-        
-        if(CopyBuffer(m_rsi_handle, 0, 0, 1, m_rsi_buffer) != 1)
-            return 0;
-        
-        if(CopyBuffer(m_stoch_handle, MAIN_LINE, 0, 1, m_stoch_buffer) != 1)
-            return 0;
-        
-        double ma_trend = (m_ma_buffer[0] > m_ma_buffer[1] && m_ma_buffer[1] > m_ma_buffer[2]) ? 1 : 
-                          (m_ma_buffer[0] < m_ma_buffer[1] && m_ma_buffer[1] < m_ma_buffer[2]) ? -1 : 0;
-        
-        double rsi_signal = (m_rsi_buffer[0] < 30) ? 1 : (m_rsi_buffer[0] > 70) ? -1 : 0;
-        
-        double stoch_signal = (m_stoch_buffer[0] < 20) ? 1 : (m_stoch_buffer[0] > 80) ? -1 : 0;
-        
-        double combined_signal = (ma_trend + rsi_signal + stoch_signal) / 3;
-        
-        PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, 0.0);
-        PlotIndexSetDouble(0, 0, combined_signal);
-        
-        return rates_total;
+        double lotSize = CalculateLotSize();
+        double entryPrice = isLong ? rate.close : rate.close;
+        double stopLoss = CalculateStopLoss(isLong, rate);
+        double takeProfit = CalculateTakeProfit(isLong, rate);
+
+        // Simulate trade opening
+        m_total_trades++;
+        // Additional trade opening logic...
+    }
+
+    void ManageOpenPositions(const MqlRates &rate)
+    {
+        // Implement your position management logic here
+        // This could include trailing stops, partial closes, etc.
+    }
+
+    void CalculateFinalStatistics()
+    {
+        double profit_factor = m_gross_loss != 0 ? m_gross_profit / m_gross_loss : 0;
+        double win_rate = m_total_trades != 0 ? (double)m_winning_trades / m_total_trades : 0;
+        double sharpe_ratio = CalculateSharpeRatio();
+
+        Print("Backtest Results for ", m_symbol);
+        Print("Total Trades: ", m_total_trades);
+        Print("Win Rate: ", DoubleToString(win_rate * 100, 2), "%");
+        Print("Profit Factor: ", DoubleToString(profit_factor, 2));
+        Print("Max Drawdown: ", DoubleToString(m_max_drawdown, 2));
+        Print("Sharpe Ratio: ", DoubleToString(sharpe_ratio, 2));
+    }
+
+    double CalculateSharpeRatio()
+    {
+        // Implement Sharpe Ratio calculation
+        return 0;
+    }
+
+    double CalculateLotSize()
+    {
+        // Implement your lot size calculation logic here
+        return 0.01;
+    }
+
+    double CalculateStopLoss(bool isLong, const MqlRates &rate)
+    {
+        // Implement your stop loss calculation logic here
+        return 0;
+    }
+
+    double CalculateTakeProfit(bool isLong, const MqlRates &rate)
+    {
+        // Implement your take profit calculation logic here
+        return 0;
     }
 };
 
 //+------------------------------------------------------------------+
-//| Portfolio Management System                                      |
+//| Walk-Forward Optimization Process                                |
 //+------------------------------------------------------------------+
-void ManagePortfolio()
+void PerformWalkForwardOptimization()
 {
-    double totalRisk = 0;
-    double accountBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+    datetime current_time = TimeCurrent();
     
-    // Calculate current portfolio risk
+    if(current_time - lastWalkForwardTime < PeriodSeconds(PERIOD_D1))
+        return;
+
+    Print("Starting Walk-Forward Optimization");
+
+    // Define in-sample and out-of-sample periods
+    datetime in_sample_start = current_time - PeriodSeconds(PERIOD_D1) * (WalkForwardPeriod + OutOfSamplePeriod);
+    datetime in_sample_end = current_time - PeriodSeconds(PERIOD_D1) * OutOfSamplePeriod;
+    datetime out_of_sample_start = in_sample_end;
+    datetime out_of_sample_end = current_time;
+
+    // Perform optimization on in-sample data
+    OptimizeParametersGA(in_sample_start, in_sample_end);
+
+    // Test optimized parameters on out-of-sample data
+    double out_of_sample_performance = TestParameters(out_of_sample_start, out_of_sample_end);
+
+    Print("Out-of-sample performance: ", out_of_sample_performance);
+
+    lastWalkForwardTime = current_time;
+}
+
+//+------------------------------------------------------------------+
+//| Test parameters on a specific period                             |
+//+------------------------------------------------------------------+
+double TestParameters(datetime start_time, datetime end_time)
+{
+    CBacktester backtester(_Symbol, PERIOD_CURRENT, start_time, end_time, AccountInfoDouble(ACCOUNT_BALANCE));
+    backtester.RunBacktest();
+
+    // Return a performance metric (e.g., Sharpe ratio)
+    return backtester.CalculateSharpeRatio();
+}
+
+//+------------------------------------------------------------------+
+//| Market Regime Detection                                          |
+//+------------------------------------------------------------------+
+void DetectMarketRegime()
+{
+    double atr[], close[];
+    ArraySetAsSeries(atr, true);
+    ArraySetAsSeries(close, true);
+
+    int atr_handle = iATR(_Symbol, PERIOD_CURRENT, 14);
+    
+    if(CopyBuffer(atr_handle, 0, 0, 100, atr) != 100 ||
+       CopyClose(_Symbol, PERIOD_CURRENT, 0, 100, close) != 100)
+    {
+        Print("Failed to copy ATR or close price data");
+        return;
+    }
+
+    double avg_atr = 0;
+    for(int i = 0; i < 100; i++)
+        avg_atr += atr[i];
+    avg_atr /= 100;
+
+    double current_atr = atr[0];
+    double price_change = MathAbs(close[0] - close[99]);
+
+    if(current_atr > avg_atr * 1.5)
+        marketRegime = 3;  // Volatile
+    else if(price_change > avg_atr * 10)
+        marketRegime = 1;  // Trending
+    else
+        marketRegime = 2;  // Ranging
+
+    Print("Current Market Regime: ", marketRegime);
+}
+
+//+------------------------------------------------------------------+
+//| Risk-Adjusted Performance Metric                                 |
+//+------------------------------------------------------------------+
+double CalculateRiskAdjustedPerformance()
+{
+    double totalReturn = 0;
+    double maxDrawdown = 0;
+    double peak = AccountInfoDouble(ACCOUNT_BALANCE);
+
     for(int i = PositionsTotal() - 1; i >= 0; i--)
     {
         if(PositionSelectByTicket(PositionGetTicket(i)))
         {
-            string symbol = PositionGetString(POSITION_SYMBOL);
-            double positionRisk = CalculatePositionRisk(symbol);
-            totalRisk += positionRisk;
+            double positionProfit = PositionGetDouble(POSITION_PROFIT);
+            totalReturn += positionProfit;
+
+            if(AccountInfoDouble(ACCOUNT_BALANCE) > peak)
+                peak = AccountInfoDouble(ACCOUNT_BALANCE);
+
+            double drawdown = (peak - AccountInfoDouble(ACCOUNT_BALANCE)) / peak;
+            if(drawdown > maxDrawdown)
+                maxDrawdown = drawdown;
         }
     }
-    
-    // Adjust position sizes if total risk exceeds MaxPortfolioRisk
-    if(totalRisk > accountBalance * MaxPortfolioRisk / 100)
-    {
-        double riskAdjustmentFactor = (accountBalance * MaxPortfolioRisk / 100) / totalRisk;
-        
-        for(int i = PositionsTotal() - 1; i >= 0; i--)
-        {
-            if(PositionSelectByTicket(PositionGetTicket(i)))
-            {
-                string symbol = PositionGetString(POSITION_SYMBOL);
-                double currentVolume = PositionGetDouble(POSITION_VOLUME);
-                double newVolume = currentVolume * riskAdjustmentFactor;
-                
-                trade.PositionModify(PositionGetTicket(i), PositionGetDouble(POSITION_SL), PositionGetDouble(POSITION_TP));
-                trade.PositionModify(PositionGetTicket(i), PositionGetDouble(POSITION_SL), PositionGetDouble(POSITION_TP), newVolume);
-            }
-        }
-    }
-    
-    // Update symbol weights based on performance
-    UpdateSymbolWeights();
+
+    // Calculate Calmar Ratio (annualized return / maximum drawdown)
+    double annualizedReturn = totalReturn / AccountInfoDouble(ACCOUNT_BALANCE) * 252;  // Assuming 252 trading days in a year
+    double calmarRatio = maxDrawdown != 0 ? annualizedReturn / maxDrawdown : 0;
+
+    return calmarRatio;
 }
 
 //+------------------------------------------------------------------+
-//| Calculate position risk                                          |
+//| Dynamic Lot Sizing based on Account Growth                       |
 //+------------------------------------------------------------------+
-double CalculatePositionRisk(string symbol)
+double CalculateDynamicLotSize(string symbol, bool isLong)
 {
-    double positionSize = PositionGetDouble(POSITION_VOLUME);
-    double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-    double stopLoss = PositionGetDouble(POSITION_SL);
-    double tickValue = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
-    double pointValue = SymbolInfoDouble(symbol, SYMBOL_POINT);
-    
-    return MathAbs(entryPrice - stopLoss) * positionSize * tickValue / pointValue;
-}
+    if(!UseAdaptivePositionSizing)
+        return CalculatePositionSize(symbol, isLong);
 
-//+------------------------------------------------------------------+
-//| Update symbol weights based on performance                       |
-//+------------------------------------------------------------------+
-void UpdateSymbolWeights()
-{
-    double totalProfit = 0;
-    
-    // Calculate total profit across all symbols
-    for(int i = 0; i < ArraySize(TradingPairs); i++)
-    {
-        string symbol = TradingPairs[i];
-        TradeStats stats;
-        if(pairStats.TryGetValue(symbol, stats))
-        {
-            totalProfit += stats.totalProfit - stats.totalLoss;
-        }
-    }
-    
-    // Update weights based on individual symbol performance
-    for(int i = 0; i < ArraySize(TradingPairs); i++)
-    {
-        string symbol = TradingPairs[i];
-        TradeStats stats;
-        if(pairStats.TryGetValue(symbol, stats))
-        {
-            double symbolProfit = stats.totalProfit - stats.totalLoss;
-            double weight = (totalProfit != 0) ? symbolProfit / totalProfit : 1.0 / ArraySize(TradingPairs);
-            symbolWeights.Set(symbol, weight);
-        }
-    }
-}
+    double accountEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+    double initialBalance = 10000;  // Replace with your actual initial balance
 
-//+------------------------------------------------------------------+
-//| Reinforcement Learning for Dynamic Strategy Selection            |
-//+------------------------------------------------------------------+
-int SelectStrategyRL(string symbol)
-{
-    // Prepare state representation
-    double state[];
-    ArrayResize(state, 5);
-    state[0] = AnalyzeTrendMultiTimeframe(symbol);
-    state[1] = iRSI(symbol, PERIOD_CURRENT, 14, PRICE_CLOSE, 0);
-    state[2] = iStochastic(symbol, PERIOD_CURRENT, 14, 3, 3, MODE_SMA, STO_LOWHIGH, MAIN_LINE, 0);
-    state[3] = atrBuffers[symbol][0];
-    state[4] = symbolWeights[symbol];
-    
-    // Use Python to get action from RL model
-    pyModule.SetArgument("state", state);
-    pyModule.Execute("action = rl_predict(state)");
-    int action = (int)pyModule.GetInteger("action");
-    
-    return action;
-}
+    double growthFactor = MathSqrt(accountEquity / initialBalance);
+    double baseLotSize = CalculatePositionSize(symbol, isLong);
 
-//+------------------------------------------------------------------+
-//| Genetic Algorithm for Parameter Optimization                     |
-//+------------------------------------------------------------------+
-void OptimizeParametersGA()
-{
-    int populationSize = GenericAlgoPopulationSize;
-    int generations = GenericAlgoGenerations;
-    
-    // Initialize population
-    double population[][4]; // ATRPeriod, RSIPeriod, StochasticKPeriod, SMC_OB_Lookback
-    ArrayResize(population, populationSize);
-    for(int i = 0; i < populationSize; i++)
-    {
-        population[i][0] = MathRand() % 20 + 10; // ATRPeriod between 10 and 30
-        population[i][1] = MathRand() % 20 + 5;  // RSIPeriod between 5 and 25
-        population[i][2] = MathRand() % 20 + 5;  // StochasticKPeriod between 5 and 25
-        population[i][3] = MathRand() % 15 + 5;  // SMC_OB_Lookback between 5 and 20
-    }
-    
-    // Evaluate fitness for each individual
-    double fitness[];
-    ArrayResize(fitness, populationSize);
-    
-    for(int gen = 0; gen < generations; gen++)
-    {
-        for(int i = 0; i < populationSize; i++)
-        {
-            fitness[i] = EvaluateFitness(population[i]);
-        }
-        
-        // Sort population by fitness
-        ArraySort(fitness, WHOLE_ARRAY, 0, MODE_DESCEND);
-        
-        // Select top 50% as parents
-        int parentCount = populationSize / 2;
-        double parents[][4];
-        ArrayResize(parents, parentCount);
-        ArrayCopy(parents, population, 0, 0, parentCount);
-        
-        // Create new population through crossover and mutation
-        for(int i = parentCount; i < populationSize; i++)
-        {
-            int parent1 = MathRand() % parentCount;
-            int parent2 = MathRand() % parentCount;
-            
-            // Crossover
-            for(int j = 0; j < 4; j++)
-            {
-                population[i][j] = (parents[parent1][j] + parents[parent2][j]) / 2;
-            }
-            
-            // Mutation
-            if(MathRand() % 100 < 10) // 10% mutation rate
-            {
-                int paramToMutate = MathRand() % 4;
-                population[i][paramToMutate] *= (1 + (MathRand() % 21 - 10) / 100.0); // Mutate by ±10%
-            }
-        }
-    }
-    
-    // Select best individual
-    int bestIndex = ArrayMaximum(fitness);
-    ATRPeriod = (int)population[bestIndex][0];
-    RSIPeriod = (int)population[bestIndex][1];
-    StochasticKPeriod = (int)population[bestIndex][2];
-    SMC_OB_Lookback = (int)population[bestIndex][3];
-    
-    Print("Optimized parameters: ATRPeriod=", ATRPeriod, ", RSIPeriod=", RSIPeriod, 
-          ", StochasticKPeriod=", StochasticKPeriod, ", SMC_OB_Lookback=", SMC_OB_Lookback);
-}
-
-//+------------------------------------------------------------------+
-//| Evaluate fitness of a set of parameters                          |
-//+------------------------------------------------------------------+
-double EvaluateFitness(const double &params[])
-{
-    int tempATRPeriod = (int)params[0];
-    int tempRSIPeriod = (int)params[1];
-    int tempStochasticKPeriod = (int)params[2];
-    int tempSMC_OB_Lookback = (int)params[3];
-    
-    double totalProfit = 0;
-    int totalTrades = 0;
-    
-    // Perform backtesting with these parameters
-    for(int i = 0; i < ArraySize(TradingPairs); i++)
-    {
-        string symbol = TradingPairs[i];
-        
-        // Your backtesting logic here
-        // This is a simplified example, you should implement a more comprehensive backtesting method
-        MqlRates rates[];
-        ArraySetAsSeries(rates, true);
-        int copied = CopyRates(symbol, PERIOD_CURRENT, 0, 1000, rates);
-        
-        if(copied > 0)
-        {
-            for(int j = 0; j < copied; j++)
-            {
-                // Simulate trading decisions and calculate profit
-                // This is where you would use your trading logic with the temporary parameters
-                // For simplicity, we'll just use a random profit/loss here
-                if(MathRand() % 2 == 0)
-                {
-                    totalProfit += MathRand() % 100;
-                }
-                else
-                {
-                    totalProfit -= MathRand() % 50;
-                }
-                totalTrades++;
-            }
-        }
-    }
-    
-    // Calculate fitness (you can adjust this formula based on your preferences)
-    double averageProfit = totalTrades > 0 ? totalProfit / totalTrades : 0;
-    double fitness = averageProfit * MathSqrt(totalTrades);
-    
-    return fitness;
+    return NormalizeDouble(baseLotSize * growthFactor, 2);
 }
 
 //+------------------------------------------------------------------+
@@ -312,58 +281,11 @@ double EvaluateFitness(const double &params[])
 //+------------------------------------------------------------------+
 int OnInit()
 {
-    // Initialize indicators for each trading pair
-    for(int i = 0; i < ArraySize(TradingPairs); i++)
-    {
-        string symbol = TradingPairs[i];
-        
-        int atrHandle = iATR(symbol, PERIOD_CURRENT, ATRPeriod);
-        int rsiHandle = iRSI(symbol, PERIOD_CURRENT, RSIPeriod, PRICE_CLOSE);
-        int stochHandle = iStochastic(symbol, PERIOD_CURRENT, StochasticKPeriod, StochasticDPeriod, StochasticSlowing, MODE_SMA, STO_LOWHIGH);
-        
-        if(atrHandle == INVALID_HANDLE || rsiHandle == INVALID_HANDLE || stochHandle == INVALID_HANDLE)
-            return(INIT_FAILED);
-        
-        atrHandles.Add(symbol, atrHandle);
-        rsiHandles.Add(symbol, rsiHandle);
-        stochHandles.Add(symbol, stochHandle);
-        
-        double atrBuffer[], rsiBuffer[], stochMainBuffer[], stochSignalBuffer[];
-        ArraySetAsSeries(atrBuffer, true);
-        ArraySetAsSeries(rsiBuffer, true);
-        ArraySetAsSeries(stochMainBuffer, true);
-        ArraySetAsSeries(stochSignalBuffer, true);
-        
-        atrBuffers.Add(symbol, atrBuffer);
-        rsiBuffers.Add(symbol, rsiBuffer);
-        stochMainBuffers.Add(symbol, stochMainBuffer);
-        stochSignalBuffers.Add(symbol, stochSignalBuffer);
-        
-        // Initialize trade statistics for each pair
-        TradeStats stats = {0, 0, 0, 0.0, 0.0};
-        pairStats.Add(symbol, stats);
-        
-        // Initialize symbol weights
-        symbolWeights.Add(symbol, 1.0 / ArraySize(TradingPairs));
-    }
-    
-    // Initialize custom indicator
-    customIndicatorHandle = iCustom(_Symbol, PERIOD_CURRENT, "CustomIndicator");
-    if(customIndicatorHandle == INVALID_HANDLE)
-        return(INIT_FAILED);
-    
-    ArraySetAsSeries(customIndicatorBuffer, true);
-    
-    // Initialize Python environment
-    if(!InitializePython())
-    {
-        Print("Failed to initialize Python environment");
-        return(INIT_FAILED);
-    }
-    
-    // Perform initial parameter optimization
-    OptimizeParametersGA();
-    
+    // ... (previous initialization code)
+
+    // Initialize market regime
+    DetectMarketRegime();
+
     return(INIT_SUCCEEDED);
 }
 
@@ -377,34 +299,33 @@ void OnTick()
         Print("High-impact news event detected. Avoiding new trades.");
         return;
     }
-    
-    // Perform adaptive parameter optimization periodically
-    if(TimeCurrent() - lastOptimizationTime > PeriodSeconds(PERIOD_D1))
-    {
-        OptimizeParametersGA();
-        lastOptimizationTime = TimeCurrent();
-    }
-    
+
+    // Perform walk-forward optimization periodically
+    PerformWalkForwardOptimization();
+
+    // Update market regime
+    DetectMarketRegime();
+
     // Manage overall portfolio risk
     ManagePortfolio();
-    
+
     // Loop through all trading pairs
     for(int i = 0; i < ArraySize(TradingPairs); i++)
     {
         string symbol = TradingPairs[i];
-        
+
         if(!UpdateMarketData(symbol)) continue;
-        
+
         int marketTrend = AnalyzeTrendMultiTimeframe(symbol);
         double[] lstmPrediction = PredictWithLSTM(symbol);
         double sentimentScore = AnalyzeSentiment();
-        
+
         // Use Reinforcement Learning to select strategy
         int selectedStrategy = SelectStrategyRL(symbol);
-        
+
         bool entrySignal = false;
         bool isLong = false;
-        
+
         switch(selectedStrategy)
         {
             case 0: // SMC strategy
@@ -423,10 +344,10 @@ void OnTick()
                 }
                 break;
         }
-        
+
         if(entrySignal)
         {
-            double lotSize = CalculatePositionSize(symbol, isLong);
+            double lotSize = CalculateDynamicLotSize(symbol, isLong);
             if(CheckAdvancedRiskManagement(symbol, lotSize, isLong))
             {
                 if(isLong)
@@ -434,7 +355,7 @@ void OnTick()
                     double entryPrice = SymbolInfoDouble(symbol, SYMBOL_ASK);
                     double stopLoss = CalculateDynamicStopLoss(symbol, true);
                     double takeProfit = CalculateDynamicTakeProfit(symbol, true);
-                    
+
                     if(trade.Buy(lotSize, symbol, entryPrice, stopLoss, takeProfit, "Moran Flipper v1.5"))
                     {
                         LogTrade(symbol, "BUY", lotSize, entryPrice, stopLoss, takeProfit);
@@ -445,7 +366,7 @@ void OnTick()
                     double entryPrice = SymbolInfoDouble(symbol, SYMBOL_BID);
                     double stopLoss = CalculateDynamicStopLoss(symbol, false);
                     double takeProfit = CalculateDynamicTakeProfit(symbol, false);
-                    
+
                     if(trade.Sell(lotSize, symbol, entryPrice, stopLoss, takeProfit, "Moran Flipper v1.5"))
                     {
                         LogTrade(symbol, "SELL", lotSize, entryPrice, stopLoss, takeProfit);
@@ -453,13 +374,17 @@ void OnTick()
                 }
             }
         }
-        
+
         ManageOpenPositions(symbol);
         ImplementTrailingStop(symbol);
-        
+
         // Update trade statistics
         UpdateTradeStats(symbol);
     }
+
+    // Calculate and log risk-adjusted performance
+    double riskAdjustedPerformance = CalculateRiskAdjustedPerformance();
+    Print("Risk-Adjusted Performance (Calmar Ratio): ", DoubleToString(riskAdjustedPerformance, 2));
 }
 
 // ... (rest of the code remains the same)
