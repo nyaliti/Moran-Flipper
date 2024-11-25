@@ -766,3 +766,374 @@ void CloseRiskiestPosition()
     }
 }
 
+//+------------------------------------------------------------------+
+//| Analyze and potentially trade a specific symbol                  |
+//+------------------------------------------------------------------+
+void AnalyzeSymbol(string symbol)
+{
+    if(!SymbolSelect(symbol, true))
+    {
+        Print("Failed to select symbol: ", symbol);
+        return;
+    }
+
+    bool isLong = false;
+    bool entrySignal = false;
+
+    // Check for entry signals using various methods
+    if(UseSMC && CheckSMCEntry(isLong, symbol))
+        entrySignal = true;
+    else if(UseSupplyDemand && CheckSupplyDemandEntry(isLong, symbol))
+        entrySignal = true;
+    else if(UseFibonacci && CheckFibonacciEntry(isLong, symbol))
+        entrySignal = true;
+    else if(UseChartPatterns && CheckChartPatterns(isLong, symbol))
+        entrySignal = true;
+
+    if(entrySignal)
+    {
+        double lotSize = CalculateAdaptiveLotSize(isLong, symbol);
+        if(CheckRiskManagement(lotSize, symbol) && CheckCorrelationFilter(symbol))
+        {
+            if(isLong)
+                OpenBuyTrade(lotSize, symbol);
+            else
+                OpenSellTrade(lotSize, symbol);
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Check for SMC entry on a specific symbol                         |
+//+------------------------------------------------------------------+
+bool CheckSMCEntry(bool &isLong, string symbol)
+{
+    if(IdentifyOrderBlock(isLong, symbol) && IdentifyFairValueGap(isLong, symbol) && IdentifyBreakOfStructure(isLong, symbol))
+    {
+        return true;
+    }
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Identify Order Block for a specific symbol                       |
+//+------------------------------------------------------------------+
+bool IdentifyOrderBlock(bool &isLong, string symbol)
+{
+    double high[], low[], close[];
+    ArraySetAsSeries(high, true);
+    ArraySetAsSeries(low, true);
+    ArraySetAsSeries(close, true);
+    
+    if(CopyHigh(symbol, PERIOD_CURRENT, 0, SMC_Lookback, high) != SMC_Lookback) return false;
+    if(CopyLow(symbol, PERIOD_CURRENT, 0, SMC_Lookback, low) != SMC_Lookback) return false;
+    if(CopyClose(symbol, PERIOD_CURRENT, 0, SMC_Lookback, close) != SMC_Lookback) return false;
+    
+    for(int i = 1; i < SMC_Lookback - 1; i++)
+    {
+        if(close[i] < close[i+1] && close[i-1] > close[i] && high[i-1] > high[i+1])
+        {
+            isLong = true;
+            return true;
+        }
+        if(close[i] > close[i+1] && close[i-1] < close[i] && low[i-1] < low[i+1])
+        {
+            isLong = false;
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Identify Fair Value Gap for a specific symbol                    |
+//+------------------------------------------------------------------+
+bool IdentifyFairValueGap(bool &isLong, string symbol)
+{
+    double high[], low[];
+    ArraySetAsSeries(high, true);
+    ArraySetAsSeries(low, true);
+    
+    if(CopyHigh(symbol, PERIOD_CURRENT, 0, SMC_Lookback, high) != SMC_Lookback) return false;
+    if(CopyLow(symbol, PERIOD_CURRENT, 0, SMC_Lookback, low) != SMC_Lookback) return false;
+    
+    for(int i = 1; i < SMC_Lookback - 1; i++)
+    {
+        if(low[i-1] > high[i+1])
+        {
+            isLong = true;
+            return true;
+        }
+        if(high[i-1] < low[i+1])
+        {
+            isLong = false;
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Identify Break of Structure for a specific symbol                |
+//+------------------------------------------------------------------+
+bool IdentifyBreakOfStructure(bool &isLong, string symbol)
+{
+    double high[], low[];
+    ArraySetAsSeries(high, true);
+    ArraySetAsSeries(low, true);
+    
+    if(CopyHigh(symbol, PERIOD_CURRENT, 0, SMC_Lookback, high) != SMC_Lookback) return false;
+    if(CopyLow(symbol, PERIOD_CURRENT, 0, SMC_Lookback, low) != SMC_Lookback) return false;
+    
+    double lowestLow = low[ArrayMinimum(low, 0, SMC_Lookback)];
+    double highestHigh = high[ArrayMaximum(high, 0, SMC_Lookback)];
+    
+    if(low[0] < lowestLow && high[1] > high[2])
+    {
+        isLong = true;
+        return true;
+    }
+    if(high[0] > highestHigh && low[1] < low[2])
+    {
+        isLong = false;
+        return true;
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Check for Supply and Demand entry on a specific symbol           |
+//+------------------------------------------------------------------+
+bool CheckSupplyDemandEntry(bool &isLong, string symbol)
+{
+    if(IsPriceInDemandZone(symbol))
+    {
+        isLong = true;
+        return true;
+    }
+    if(IsPriceInSupplyZone(symbol))
+    {
+        isLong = false;
+        return true;
+    }
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Check if price is in a demand zone for a specific symbol         |
+//+------------------------------------------------------------------+
+bool IsPriceInDemandZone(string symbol)
+{
+    double close[];
+    ArraySetAsSeries(close, true);
+    
+    if(CopyClose(symbol, PERIOD_CURRENT, 0, 100, close) != 100) return false;
+    
+    double currentPrice = close[0];
+    double recentLow = close[ArrayMinimum(close, 0, 100)];
+    double demandZoneUpper = recentLow * 1.005; // 0.5% above recent low
+    double demandZoneLower = recentLow * 0.995; // 0.5% below recent low
+    
+    return (currentPrice >= demandZoneLower && currentPrice <= demandZoneUpper);
+}
+
+//+------------------------------------------------------------------+
+//| Check if price is in a supply zone for a specific symbol         |
+//+------------------------------------------------------------------+
+bool IsPriceInSupplyZone(string symbol)
+{
+    double close[];
+    ArraySetAsSeries(close, true);
+    
+    if(CopyClose(symbol, PERIOD_CURRENT, 0, 100, close) != 100) return false;
+    
+    double currentPrice = close[0];
+    double recentHigh = close[ArrayMaximum(close, 0, 100)];
+    double supplyZoneLower = recentHigh * 0.995; // 0.5% below recent high
+    double supplyZoneUpper = recentHigh * 1.005; // 0.5% above recent high
+    
+    return (currentPrice >= supplyZoneLower && currentPrice <= supplyZoneUpper);
+}
+
+//+------------------------------------------------------------------+
+//| Check for Fibonacci entry on a specific symbol                   |
+//+------------------------------------------------------------------+
+bool CheckFibonacciEntry(bool &isLong, string symbol)
+{
+    double high[], low[], close[];
+    ArraySetAsSeries(high, true);
+    ArraySetAsSeries(low, true);
+    ArraySetAsSeries(close, true);
+    
+    if(CopyHigh(symbol, PERIOD_CURRENT, 0, FiboPeriod, high) != FiboPeriod) return false;
+    if(CopyLow(symbol, PERIOD_CURRENT, 0, FiboPeriod, low) != FiboPeriod) return false;
+    if(CopyClose(symbol, PERIOD_CURRENT, 0, 1, close) != 1) return false;
+    
+    int highestBar = ArrayMaximum(high, 0, FiboPeriod);
+    int lowestBar = ArrayMinimum(low, 0, FiboPeriod);
+    
+    double range = high[highestBar] - low[lowestBar];
+    double fibo382 = low[lowestBar] + range * 0.382;
+    double fibo618 = low[lowestBar] + range * 0.618;
+    
+    if(close[0] >= fibo382 * 0.99 && close[0] <= fibo382 * 1.01)
+    {
+        isLong = true;
+        return true;
+    }
+    if(close[0] >= fibo618 * 0.99 && close[0] <= fibo618 * 1.01)
+    {
+        isLong = false;
+        return true;
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Check for chart patterns on a specific symbol                    |
+//+------------------------------------------------------------------+
+bool CheckChartPatterns(bool &isLong, string symbol)
+{
+    if(IdentifyHeadAndShoulders(isLong, symbol)) return true;
+    if(IdentifyDoubleTopBottom(isLong, symbol)) return true;
+    if(IdentifyTriangle(isLong, symbol)) return true;
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Check risk management for a specific symbol                      |
+//+------------------------------------------------------------------+
+bool CheckRiskManagement(double lotSize, string symbol)
+{
+    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+    double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+    
+    if(equity < balance * 0.95) // Stop trading if equity drops below 95% of balance
+        return false;
+    
+    if(freeMargin < balance * 0.2) // Stop trading if free margin is less than 20% of balance
+        return false;
+    
+    // Calculate potential loss for this trade
+    double tickValue = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+    double atr = iATR(symbol, PERIOD_CURRENT, ATRPeriod, 0);
+    double potentialLoss = atr * 2 * lotSize * tickValue;
+    
+    if(potentialLoss > balance * RiskPercent / 100)
+        return false;
+    
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| Open a buy trade for a specific symbol                           |
+//+------------------------------------------------------------------+
+void OpenBuyTrade(double lotSize, string symbol)
+{
+    double entryPrice = SymbolInfoDouble(symbol, SYMBOL_ASK);
+    double atr = iATR(symbol, PERIOD_CURRENT, ATRPeriod, 0);
+    double stopLoss = entryPrice - atr * 2;
+    double takeProfit = entryPrice + atr * 3;
+    
+    trade.Buy(lotSize, symbol, entryPrice, stopLoss, takeProfit, "Moran Flipper v2.2");
+}
+
+//+------------------------------------------------------------------+
+//| Open a sell trade for a specific symbol                          |
+//+------------------------------------------------------------------+
+void OpenSellTrade(double lotSize, string symbol)
+{
+    double entryPrice = SymbolInfoDouble(symbol, SYMBOL_BID);
+    double atr = iATR(symbol, PERIOD_CURRENT, ATRPeriod, 0);
+    double stopLoss = entryPrice + atr * 2;
+    double takeProfit = entryPrice - atr * 3;
+    
+    trade.Sell(lotSize, symbol, entryPrice, stopLoss, takeProfit, "Moran Flipper v2.2");
+}
+
+//+------------------------------------------------------------------+
+//| Calculate adaptive lot size for a specific symbol                |
+//+------------------------------------------------------------------+
+double CalculateAdaptiveLotSize(bool isLong, string symbol)
+{
+    double baseLotsPercentage = RiskPercent / 100;
+    double accountBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+    double atr = iATR(symbol, PERIOD_CURRENT, ATRPeriod, 0);
+    double lotSize = accountBalance * baseLotsPercentage / (atr * 100000);
+    
+    // Adjust lot size based on recent performance
+    double recentPerformance = CalculateRecentPerformance(symbol);
+    lotSize *= (1 + recentPerformance);
+    
+    // Adjust lot size based on market volatility
+    double currentVolatility = atr;
+    double averageVolatility = iATR(symbol, PERIOD_CURRENT, 50, 0);
+    double volatilityRatio = currentVolatility / averageVolatility;
+    lotSize *= (2 - volatilityRatio); // Decrease size in high volatility, increase in low volatility
+    
+    // Ensure lot size is within allowed limits
+    double minLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+    double maxLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
+    lotSize = MathMax(MathMin(lotSize, maxLot), minLot);
+    
+    return NormalizeDouble(lotSize, 2);
+}
+
+//+------------------------------------------------------------------+
+//| Calculate recent trading performance for a specific symbol       |
+//+------------------------------------------------------------------+
+double CalculateRecentPerformance(string symbol)
+{
+    int totalTrades = 0;
+    int winningTrades = 0;
+    
+    for(int i = HistoryDealsTotal() - 1; i >= MathMax(0, HistoryDealsTotal() - 20); i--)
+    {
+        ulong ticket = HistoryDealGetTicket(i);
+        if(HistoryDealSelect(ticket) && HistoryDealGetString(ticket, DEAL_SYMBOL) == symbol)
+        {
+            totalTrades++;
+            if(HistoryDealGetDouble(ticket, DEAL_PROFIT) > 0)
+                winningTrades++;
+        }
+    }
+    
+    return totalTrades > 0 ? (double)winningTrades / totalTrades - 0.5 : 0; // Return value between -0.5 and 0.5
+}
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+    // Initialize ATR indicator
+    atrHandle = iATR(_Symbol, PERIOD_CURRENT, ATRPeriod);
+    if(atrHandle == INVALID_HANDLE) return(INIT_FAILED);
+    
+    ArraySetAsSeries(atrBuffer, true);
+    
+    // Initialize current optimization parameters
+    currentParams.ATRPeriod = ATRPeriod;
+    currentParams.FiboPeriod = FiboPeriod;
+    currentParams.SMC_Lookback = SMC_Lookback;
+    
+    // Initialize pair correlations
+    UpdatePairCorrelations();
+    
+    Print("Moran Flipper v2.2 initialized successfully");
+    return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+    IndicatorRelease(atrHandle);
+    Print("Moran Flipper v2.2 deinitialized. Reason: ", reason);
+}
