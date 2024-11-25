@@ -734,3 +734,147 @@ bool IdentifyOrderBlockShort()
         if(close[i] > close[i+1] && close[i-1] < close[i] && low[i-1] < low[i+1])
         {
             // Potential bearish order
+//+------------------------------------------------------------------+
+//| Identify Fair Value Gap for Short Entries                        |
+//+------------------------------------------------------------------+
+bool IdentifyFairValueGapShort()
+{
+    double high[], low[];
+    ArraySetAsSeries(high, true);
+    ArraySetAsSeries(low, true);
+    
+    if(CopyHigh(_Symbol, PERIOD_CURRENT, 0, SMC_FVG_Lookback, high) != SMC_FVG_Lookback) return false;
+    if(CopyLow(_Symbol, PERIOD_CURRENT, 0, SMC_FVG_Lookback, low) != SMC_FVG_Lookback) return false;
+    
+    // Look for bearish FVG
+    for(int i = 1; i < SMC_FVG_Lookback - 1; i++)
+    {
+        if(high[i-1] < low[i+1])
+        {
+            // Bearish FVG found
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Identify Break of Structure for Short Entries                    |
+//+------------------------------------------------------------------+
+bool IdentifyBreakOfStructureShort()
+{
+    double high[], low[];
+    ArraySetAsSeries(high, true);
+    ArraySetAsSeries(low, true);
+    
+    if(CopyHigh(_Symbol, PERIOD_CURRENT, 0, SMC_OB_Lookback, high) != SMC_OB_Lookback) return false;
+    if(CopyLow(_Symbol, PERIOD_CURRENT, 0, SMC_OB_Lookback, low) != SMC_OB_Lookback) return false;
+    
+    // Look for bearish break of structure
+    double highestHigh = high[ArrayMaximum(high, 0, SMC_OB_Lookback)];
+    if(high[0] > highestHigh && low[1] < low[2])
+    {
+        return true;
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Strategy: Supply and Demand for Short Entries                    |
+//+------------------------------------------------------------------+
+bool CheckSupplyDemandEntryShort()
+{
+    if(IsPriceInSupplyZone() && IsDowntrendConfirmed())
+    {
+        return true;
+    }
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Check if price is in a supply zone                               |
+//+------------------------------------------------------------------+
+bool IsPriceInSupplyZone()
+{
+    double close[];
+    ArraySetAsSeries(close, true);
+    
+    if(CopyClose(_Symbol, PERIOD_CURRENT, 0, 100, close) != 100) return false;
+    
+    double currentPrice = close[0];
+    double supplyZoneLower = IdentifyRecentHigh(close, 100) * 0.995; // 0.5% below recent high
+    double supplyZoneUpper = IdentifyRecentHigh(close, 100) * 1.005; // 0.5% above recent high
+    
+    return (currentPrice >= supplyZoneLower && currentPrice <= supplyZoneUpper);
+}
+
+//+------------------------------------------------------------------+
+//| Identify recent high price                                       |
+//+------------------------------------------------------------------+
+double IdentifyRecentHigh(const double &price[], int count)
+{
+    return price[ArrayMaximum(price, 0, count)];
+}
+
+//+------------------------------------------------------------------+
+//| Confirm downtrend                                                |
+//+------------------------------------------------------------------+
+bool IsDowntrendConfirmed()
+{
+    double ma[], close[];
+    ArraySetAsSeries(ma, true);
+    ArraySetAsSeries(close, true);
+    
+    int maHandle = iMA(_Symbol, PERIOD_CURRENT, 20, 0, MODE_SMA, PRICE_CLOSE);
+    if(maHandle == INVALID_HANDLE) return false;
+    
+    if(CopyBuffer(maHandle, 0, 0, 3, ma) != 3) return false;
+    if(CopyClose(_Symbol, PERIOD_CURRENT, 0, 3, close) != 3) return false;
+    
+    IndicatorRelease(maHandle);
+    
+    // Price below MA and MA sloping downwards
+    return (close[0] < ma[0] && ma[0] < ma[1] && ma[1] < ma[2]);
+}
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+    // Initialize ATR indicator
+    atrHandle = iATR(_Symbol, PERIOD_CURRENT, ATRPeriod);
+    if(atrHandle == INVALID_HANDLE) return(INIT_FAILED);
+    
+    ArraySetAsSeries(atrBuffer, true);
+    
+    // Initialize Python environment
+    if(!InitializePython())
+    {
+        Print("Failed to initialize Python environment");
+        return(INIT_FAILED);
+    }
+    
+    // Initialize trade statistics
+    stats.totalTrades = 0;
+    stats.winningTrades = 0;
+    stats.losingTrades = 0;
+    stats.totalProfit = 0;
+    stats.totalLoss = 0;
+    
+    return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+    IndicatorRelease(atrHandle);
+    pyModule.Finalize();
+    
+    // Print final trade statistics
+    PrintTradeStats();
+}
