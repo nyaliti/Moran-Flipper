@@ -656,3 +656,392 @@ int AnalyzeTrendMultiTimeframe(string symbol)
     return 0;
 }
 
+//+------------------------------------------------------------------+
+//| Identify trend for a specific timeframe                          |
+//+------------------------------------------------------------------+
+int IdentifyTrend(string symbol, ENUM_TIMEFRAMES timeframe)
+{
+    double ma[], close[];
+    ArraySetAsSeries(ma, true);
+    ArraySetAsSeries(close, true);
+    
+    int maHandle = iMA(symbol, timeframe, 50, 0, MODE_SMA, PRICE_CLOSE);
+    if(maHandle == INVALID_HANDLE) return 0;
+    
+    if(CopyBuffer(maHandle, 0, 0, 3, ma) != 3) return 0;
+    if(CopyClose(symbol, timeframe, 0, 3, close) != 3) return 0;
+    
+    IndicatorRelease(maHandle);
+    
+    if(close[0] > ma[0] && ma[0] > ma[1] && ma[1] > ma[2])
+        return 1;  // Uptrend
+    if(close[0] < ma[0] && ma[0] < ma[1] && ma[1] < ma[2])
+        return -1; // Downtrend
+    
+    return 0;  // No clear trend
+}
+
+//+------------------------------------------------------------------+
+//| Calculate dynamic stop loss                                      |
+//+------------------------------------------------------------------+
+double CalculateDynamicStopLoss(string symbol, bool isBuy)
+{
+    double atrBuffer[];
+    atrBuffers.TryGetValue(symbol, atrBuffer);
+    double atr = atrBuffer[0];
+    double currentPrice = isBuy ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
+    double stopLoss = isBuy ? currentPrice - atr * 2 : currentPrice + atr * 2;
+    
+    return NormalizeDouble(stopLoss, SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+}
+
+//+------------------------------------------------------------------+
+//| Calculate dynamic take profit                                    |
+//+------------------------------------------------------------------+
+double CalculateDynamicTakeProfit(string symbol, bool isBuy)
+{
+    double atrBuffer[];
+    atrBuffers.TryGetValue(symbol, atrBuffer);
+    double atr = atrBuffer[0];
+    double currentPrice = isBuy ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
+    double takeProfit = isBuy ? currentPrice + atr * 3 : currentPrice - atr * 3;
+    
+    return NormalizeDouble(takeProfit, SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+}
+
+//+------------------------------------------------------------------+
+//| Check for high-impact news events                                |
+//+------------------------------------------------------------------+
+bool IsHighImpactNewsTime()
+{
+    datetime currentTime = TimeCurrent();
+    MqlCalendarValue values[];
+    
+    if(CalendarValueHistory(values, currentTime, currentTime + PeriodSeconds(PERIOD_H1)))
+    {
+        for(int i = 0; i < ArraySize(values); i++)
+        {
+            if(values[i].impact_type == CALENDAR_IMPACT_HIGH)
+            {
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Custom function to update trade statistics                       |
+//+------------------------------------------------------------------+
+void UpdateTradeStats(string symbol)
+{
+    TradeStats stats;
+    if(!pairStats.TryGetValue(symbol, stats))
+    {
+        stats.totalTrades = 0;
+        stats.winningTrades = 0;
+        stats.losingTrades = 0;
+        stats.totalProfit = 0;
+        stats.totalLoss = 0;
+    }
+
+    for(int i = PositionsTotal() - 1; i >= 0; i--)
+    {
+        if(PositionSelectByTicket(PositionGetTicket(i)))
+        {
+            if(PositionGetString(POSITION_SYMBOL) == symbol)
+            {
+                double positionProfit = PositionGetDouble(POSITION_PROFIT);
+                if(positionProfit > 0)
+                {
+                    stats.winningTrades++;
+                    stats.totalProfit += positionProfit;
+                }
+                else
+                {
+                    stats.losingTrades++;
+                    stats.totalLoss += MathAbs(positionProfit);
+                }
+                stats.totalTrades++;
+            }
+        }
+    }
+
+    pairStats.Set(symbol, stats);
+}
+
+//+------------------------------------------------------------------+
+//| Print trade statistics                                           |
+//+------------------------------------------------------------------+
+void PrintTradeStats(string symbol)
+{
+    TradeStats stats;
+    if(!pairStats.TryGetValue(symbol, stats))
+        return;
+
+    double winRate = stats.totalTrades > 0 ? (double)stats.winningTrades / stats.totalTrades * 100 : 0;
+    double profitFactor = stats.totalLoss > 0 ? stats.totalProfit / stats.totalLoss : 0;
+    
+    Print("=== Moran Flipper v1.5 Trade Statistics for ", symbol, " ===");
+    Print("Total Trades: ", stats.totalTrades);
+    Print("Winning Trades: ", stats.winningTrades);
+    Print("Losing Trades: ", stats.losingTrades);
+    Print("Win Rate: ", DoubleToString(winRate, 2), "%");
+    Print("Total Profit: ", DoubleToString(stats.totalProfit, 2));
+    Print("Total Loss: ", DoubleToString(stats.totalLoss, 2));
+    Print("Profit Factor: ", DoubleToString(profitFactor, 2));
+    Print("==========================================");
+}
+
+//+------------------------------------------------------------------+
+//| Strategy: Smart Money Concepts (SMC)                             |
+//+------------------------------------------------------------------+
+bool CheckSMCEntry(string symbol, bool isLong)
+{
+    if(isLong)
+    {
+        if(IdentifyOrderBlock(symbol, true) && IdentifyFairValueGap(symbol, true) && IdentifyBreakOfStructure(symbol, true))
+        {
+            return true;
+        }
+    }
+    else
+    {
+        if(IdentifyOrderBlock(symbol, false) && IdentifyFairValueGap(symbol, false) && IdentifyBreakOfStructure(symbol, false))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Identify Order Block                                             |
+//+------------------------------------------------------------------+
+bool IdentifyOrderBlock(string symbol, bool isLong)
+{
+    double high[], low[], close[];
+    ArraySetAsSeries(high, true);
+    ArraySetAsSeries(low, true);
+    ArraySetAsSeries(close, true);
+    
+    if(CopyHigh(symbol, PERIOD_CURRENT, 0, SMC_OB_Lookback, high) != SMC_OB_Lookback) return false;
+    if(CopyLow(symbol, PERIOD_CURRENT, 0, SMC_OB_Lookback, low) != SMC_OB_Lookback) return false;
+    if(CopyClose(symbol, PERIOD_CURRENT, 0, SMC_OB_Lookback, close) != SMC_OB_Lookback) return false;
+    
+    if(isLong)
+    {
+        // Look for bullish order block
+        for(int i = 1; i < SMC_OB_Lookback - 1; i++)
+        {
+            if(close[i] < close[i+1] && close[i-1] > close[i] && high[i-1] > high[i+1])
+            {
+                // Potential bullish order block found
+                return true;
+            }
+        }
+    }
+    else
+    {
+        // Look for bearish order block
+        for(int i = 1; i < SMC_OB_Lookback - 1; i++)
+        {
+            if(close[i] > close[i+1] && close[i-1] < close[i] && low[i-1] < low[i+1])
+            {
+                // Potential bearish order block found
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Identify Fair Value Gap                                          |
+//+------------------------------------------------------------------+
+bool IdentifyFairValueGap(string symbol, bool isLong)
+{
+    double high[], low[];
+    ArraySetAsSeries(high, true);
+    ArraySetAsSeries(low, true);
+    
+    if(CopyHigh(symbol, PERIOD_CURRENT, 0, SMC_FVG_Lookback, high) != SMC_FVG_Lookback) return false;
+    if(CopyLow(symbol, PERIOD_CURRENT, 0, SMC_FVG_Lookback, low) != SMC_FVG_Lookback) return false;
+    
+    if(isLong)
+    {
+        // Look for bullish FVG
+        for(int i = 1; i < SMC_FVG_Lookback - 1; i++)
+        {
+            if(low[i-1] > high[i+1])
+            {
+                // Bullish FVG found
+                return true;
+            }
+        }
+    }
+    else
+    {
+        // Look for bearish FVG
+        for(int i = 1; i < SMC_FVG_Lookback - 1; i++)
+        {
+            if(high[i-1] < low[i+1])
+            {
+                // Bearish FVG found
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Identify Break of Structure                                      |
+//+------------------------------------------------------------------+
+bool IdentifyBreakOfStructure(string symbol, bool isLong)
+{
+    double high[], low[];
+    ArraySetAsSeries(high, true);
+    ArraySetAsSeries(low, true);
+    
+    if(CopyHigh(symbol, PERIOD_CURRENT, 0, SMC_OB_Lookback, high) != SMC_OB_Lookback) return false;
+    if(CopyLow(symbol, PERIOD_CURRENT, 0, SMC_OB_Lookback, low) != SMC_OB_Lookback) return false;
+    
+    if(isLong)
+    {
+        // Look for bullish break of structure
+        double lowestLow = low[ArrayMinimum(low, 0, SMC_OB_Lookback)];
+        if(low[0] < lowestLow && high[1] > high[2])
+        {
+            return true;
+        }
+    }
+    else
+    {
+        // Look for bearish break of structure
+        double highestHigh = high[ArrayMaximum(high, 0, SMC_OB_Lookback)];
+        if(high[0] > highestHigh && low[1] < low[2])
+        {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Strategy: Supply and Demand                                      |
+//+------------------------------------------------------------------+
+bool CheckSupplyDemandEntry(string symbol, bool isLong)
+{
+    if(isLong)
+    {
+        if(IsPriceInDemandZone(symbol) && IsUptrendConfirmed(symbol))
+        {
+            return true;
+        }
+    }
+    else
+    {
+        if(IsPriceInSupplyZone(symbol) && IsDowntrendConfirmed(symbol))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Check if price is in a demand zone                               |
+//+------------------------------------------------------------------+
+bool IsPriceInDemandZone(string symbol)
+{
+    double close[];
+    ArraySetAsSeries(close, true);
+    
+    if(CopyClose(symbol, PERIOD_CURRENT, 0, 100, close) != 100) return false;
+    
+    double currentPrice = close[0];
+    double demandZoneUpper = IdentifyRecentLow(close, 100) * 1.005; // 0.5% above recent low
+    double demandZoneLower = IdentifyRecentLow(close, 100) * 0.995; // 0.5% below recent low
+    
+    return (currentPrice >= demandZoneLower && currentPrice <= demandZoneUpper);
+}
+
+//+------------------------------------------------------------------+
+//| Check if price is in a supply zone                               |
+//+------------------------------------------------------------------+
+bool IsPriceInSupplyZone(string symbol)
+{
+    double close[];
+    ArraySetAsSeries(close, true);
+    
+    if(CopyClose(symbol, PERIOD_CURRENT, 0, 100, close) != 100) return false;
+    
+    double currentPrice = close[0];
+    double supplyZoneLower = IdentifyRecentHigh(close, 100) * 0.995; // 0.5% below recent high
+    double supplyZoneUpper = IdentifyRecentHigh(close, 100) * 1.005; // 0.5% above recent high
+    
+    return (currentPrice >= supplyZoneLower && currentPrice <= supplyZoneUpper);
+}
+
+//+------------------------------------------------------------------+
+//| Identify recent low price                                        |
+//+------------------------------------------------------------------+
+double IdentifyRecentLow(const double &price[], int count)
+{
+    return price[ArrayMinimum(price, 0, count)];
+}
+
+//+------------------------------------------------------------------+
+//| Identify recent high price                                       |
+//+------------------------------------------------------------------+
+double IdentifyRecentHigh(const double &price[], int count)
+{
+    return price[ArrayMaximum(price, 0, count)];
+}
+
+//+------------------------------------------------------------------+
+//| Confirm uptrend                                                  |
+//+------------------------------------------------------------------+
+bool IsUptrendConfirmed(string symbol)
+{
+    double ma[], close[];
+    ArraySetAsSeries(ma, true);
+    ArraySetAsSeries(close, true);
+    
+    int maHandle = iMA(symbol, PERIOD_CURRENT, 20, 0, MODE_SMA, PRICE_CLOSE);
+    if(maHandle == INVALID_HANDLE) return false;
+    
+    if(CopyBuffer(maHandle, 0, 0, 3, ma) != 3) return false;
+    if(CopyClose(symbol, PERIOD_CURRENT, 0, 3, close) != 3) return false;
+    
+    IndicatorRelease(maHandle);
+    
+    // Price above MA and MA sloping upwards
+    return (close[0] > ma[0] && ma[0] > ma[1] && ma[1] > ma[2]);
+}
+
+//+------------------------------------------------------------------+
+//| Confirm downtrend                                                |
+//+------------------------------------------------------------------+
+bool IsDowntrendConfirmed(string symbol)
+{
+    double ma[], close[];
+    ArraySetAsSeries(ma, true);
+    ArraySetAsSeries(close, true);
+    
+    int maHandle = iMA(symbol, PERIOD_CURRENT, 20, 0, MODE_SMA, PRICE_CLOSE);
+    if(maHandle == INVALID_HANDLE) return false;
+    
+    if(CopyBuffer(maHandle, 0, 0, 3, ma) != 3) return false;
+    if(CopyClose(symbol, PERIOD_CURRENT, 0, 3, close) != 3) return false;
+    
+    IndicatorRelease(maHandle);
+    
+    // Price below MA and MA sloping downwards
+    return (close[0] < ma[0] && ma[0] < ma[1] && ma[1] < ma[2]);
+}
